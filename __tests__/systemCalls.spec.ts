@@ -1,5 +1,5 @@
 import { Arrays, Base58, MockVM, StringBytes, System, Crypto, Base64 } from "../assembly";
-import { chain, protocol, authority, error, system_calls } from 'koinos-proto-as';
+import { chain, protocol, authority, error, system_calls, token } from 'koinos-proto-as';
 
 import * as TestObject from "./test";
 
@@ -8,6 +8,10 @@ const mockAccount2 = Base58.decode('1DQzuCcTKacbs9GGScRTU1Hc8BsyARTPqE');
 const mockId = Arrays.fromHexString("0x1220d15a1c2ea198178ae860c1284a7ec929e7804b15651b9f4303dc1fc6a8eefd27");
 const mockStr = 'Hello World!';
 const mockStrBytes = StringBytes.stringToBytes(mockStr);
+
+const CONTRACT_ID = Base58.decode("1DQzuCcTKacbs9GGScRTU1Hc8BsyARTPqe");
+
+const MOCK_ACCT1 = Base58.decode("1DQzuCcTKacbs9GGScRTU1Hc8BsyARTPqG");
 
 describe('SystemCalls', () => {
   beforeEach(() => {
@@ -376,7 +380,12 @@ describe('SystemCalls', () => {
     obj.value = 200;
     System.putObject<string, TestObject.test_object>(objSpace, 'key2', obj, TestObject.test_object.encode);
 
-    const obj1 = System.getObject<string, TestObject.test_object>(objSpace, 'key2', TestObject.test_object.decode);
+    let obj1 = System.getObject<string, TestObject.test_object>(objSpace, 'key2', TestObject.test_object.decode);
+
+    expect(obj1).not.toBeNull();
+    expect(obj1!.value).toBe(200);
+
+    obj1 = System.getObject<string, TestObject.test_object>(objSpace, 'key2', TestObject.test_object.decode);
 
     expect(obj1).not.toBeNull();
     expect(obj1!.value).toBe(200);
@@ -400,5 +409,48 @@ describe('SystemCalls', () => {
     obj2 = System.getNextObject<string, TestObject.test_object>(objSpace, 'key3', TestObject.test_object.decode);
 
     expect(obj2).toBeNull();
+  });
+
+  it("manually burn", () => {
+    const SUPPLY_ID: u32 = 0;
+    const BALANCE_ID: u32 = 1;
+    const SUPPLY_KEY = new Uint8Array(0);
+    const SUPPLY = new chain.object_space(true, CONTRACT_ID, SUPPLY_ID);
+    const BALANCE = new chain.object_space(true, CONTRACT_ID, BALANCE_ID);
+
+    let callerData = new chain.caller_data();
+    callerData.caller = CONTRACT_ID;
+    callerData.caller_privilege = chain.privilege.kernel_mode;
+    MockVM.setCaller(callerData);
+
+    // set contract_call authority for CONTRACT_ID to true so that we can mint tokens
+    let auth = new MockVM.MockAuthority(authority.authorization_type.contract_call, CONTRACT_ID, true);
+    MockVM.setAuthorities([auth]);
+
+    let supplyObject = System.getObject<Uint8Array, token.balance_object>(SUPPLY, SUPPLY_KEY, token.balance_object.decode);
+    expect(!supplyObject).toBeTruthy()
+
+    supplyObject = new token.balance_object();
+    supplyObject.value = 123;
+    let balanceObject : token.balance_object | null = new token.balance_object();
+    balanceObject!.value = 123;
+
+    System.putObject(SUPPLY, SUPPLY_KEY, supplyObject, token.balance_object.encode);
+    System.putObject(BALANCE, MOCK_ACCT1, balanceObject, token.balance_object.encode);
+
+    //MockVM.commitTransaction();
+
+    supplyObject = System.getObject<Uint8Array, token.balance_object>(SUPPLY, SUPPLY_KEY, token.balance_object.decode);
+    expect(supplyObject!.value).toBe(123);
+
+    balanceObject = System.getObject<Uint8Array, token.balance_object>(BALANCE, MOCK_ACCT1, token.balance_object.decode);
+    expect(balanceObject!.value).toBe(123);
+
+    //balanceArgs = new token.balance_of_arguments(MOCK_ACCT1);
+    //balanceRes = tkn.balance_of(balanceArgs);
+    //expect(balanceRes.value).toBe(123);
+
+    auth = new MockVM.MockAuthority(authority.authorization_type.contract_call, MOCK_ACCT1, true);
+    MockVM.setAuthorities([auth]);
   });
 });
